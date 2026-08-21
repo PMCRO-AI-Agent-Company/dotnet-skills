@@ -1,6 +1,6 @@
 # Project Source Dump
 
-Generated: 2026-08-21T15:16:21.568Z
+Generated: 2026-08-21T16:33:56.183Z
 
 
 ## File: .claude-plugin\marketplace.json
@@ -3834,6 +3834,196 @@ Every answer — plan or implementation — must address the guardrails for the 
   ]
 }
 
+```
+
+## File: plugins\dotnet-aspire\skills\create-aspire-project\SKILL.md
+
+```
+---
+name: create-aspire-project
+description: >
+  Create a new .NET Aspire 13+ cloud-native application with Ollama GPU containers,
+  MCP server integration, ServiceDefaults (health checks, resilience, OpenTelemetry),
+  and CopilotKit frontend. Production-ready, enterprise-grade, bleeding-edge.
+  USE FOR: creating Aspire app hosts, scaffolding distributed apps, adding Ollama
+  to Aspire projects, wiring MCP servers into Aspire orchestration, setting up
+  .NET Aspire with GPU containers.
+  DO NOT USE FOR: modifying existing Aspire projects, simple Blazor-only projects
+  (use create-blazor-project), MAF agent creation without Aspire (use create-maf-agent).
+---
+
+# Create a .NET Aspire Project
+
+Scaffolds a production .NET Aspire 13.4+ application with the full stack:
+Ollama GPU container with data persistence, MCP actuator servers (filesystem,
+terminal, Playwright), CopilotKit frontend, and ServiceDefaults.
+
+## Stack Overview (v2.1.0 — PMCR-O Runtime)
+
+```
+src/
+├── ProjectName.AppHost/           ← Aspire AppHost — .NET 11 + Aspire 13.4
+│   ├── AppHost.cs                 ← Orchestration: Ollama GPU + MCP servers + CopilotKit
+│   └── ProjectName.AppHost.csproj ← Aspire SDK + Ollama hosting + MAF DevUI
+├── ProjectName.ServiceDefaults/   ← Shared: health checks, resilience, OTEL
+│   ├── Extensions.cs              ← .AddServiceDefaults<TBuilder>()
+│   └── OllamaExtensions.cs        ← Keyed IChatClient for Ollama API
+├── ProjectName.OrchestratorService/ ← MAF WorkflowBuilder — sequential P→M→C→R
+├── ProjectName.OrchestratorApi/   ← HTTP facade (Scalar, CopilotKit AG-UI)
+├── frontend/                      ← Next.js CopilotKit runtime
+└── mcp/
+    ├── ProjectName.Mcp.Filesystem/ ← MCP filesystem actuator
+    ├── ProjectName.Mcp.Terminal/   ← MCP terminal actuator
+    └── ProjectName.Mcp.Playwright/ ← MCP browser actuator
+```
+
+## Prerequisites
+
+```shell
+dotnet workload install aspire
+# .NET 11 SDK required
+# Docker Desktop for Ollama GPU container
+```
+
+## Scaffold the Full Stack
+
+```shell
+# Create solution
+dotnet new sln -o {ProjectName}
+
+# AppHost (Aspire SDK 13.4+)
+dotnet new aspire-apphost -o {ProjectName}/src/{ProjectName}.AppHost
+
+# ServiceDefaults
+dotnet new aspire-servicedefaults -o {ProjectName}/src/{ProjectName}.ServiceDefaults
+
+# OrchestratorService (MAF WorkflowBuilder)
+dotnet new web -o {ProjectName}/src/{ProjectName}.OrchestratorService
+
+# OrchestratorApi (HTTP facade)
+dotnet new webapi -o {ProjectName}/src/{ProjectName}.OrchestratorApi
+
+# MCP servers
+dotnet new console -o {ProjectName}/mcp/{ProjectName}.Mcp.Filesystem
+dotnet new console -o {ProjectName}/mcp/{ProjectName}.Mcp.Terminal
+dotnet new console -o {ProjectName}/mcp/{ProjectName}.Mcp.Playwright
+```
+
+## AppHost.cs — Ollama GPU + MCP + CopilotKit
+
+```csharp
+// AppHost.cs
+var builder = DistributedApplication.CreateBuilder(args);
+var repoRoot = builder.AddParameter("repoRoot");
+
+// Ollama GPU container — persistent, 16384 context
+var ollama = builder.AddOllama("ollama-server")
+    .WithGPUSupport(OllamaGpuVendor.Nvidia)
+    .WithLifetime(ContainerLifetime.Persistent)
+    .WithDataVolume("ollama-data")
+    .WithEnvironment("OLLAMA_CONTEXT_LENGTH", "16384")
+    .WithEnvironment("OLLAMA_FLASH_ATTENTION", "0");
+var model = ollama.AddModel("model-orchestrator", "qwen3:8b");
+
+// MCP servers
+var mcpFilesystem = builder.AddProject<Projects.ProjectName_Mcp_Filesystem>("mcp-fs")
+    .WithEnvironment("Filesystem__SandboxRoot", repoRoot);
+var mcpTerminal = builder.AddProject<Projects.ProjectName_Mcp_Terminal>("mcp-term")
+    .WithEnvironment("Parameters__working-root", repoRoot);
+var mcpPlaywright = builder.AddProject<Projects.ProjectName_Mcp_Playwright>("mcp-pw")
+    .WithEnvironment("Playwright__Headless", "false");
+
+// OrchestratorService — full PMCR-O cycle in-process
+var orchestrator = builder.AddProject<Projects.ProjectName_OrchestratorService>("orchestrator")
+    .WithReference(ollama).WithReference(model)
+    .WithReference(mcpFilesystem).WithReference(mcpTerminal)
+    .WithEnvironment("Orchestrator__FileSystemRoot", repoRoot)
+    .WaitFor(model).WaitFor(mcpFilesystem).WaitFor(mcpTerminal);
+
+// OrchestratorApi — HTTP facade
+var api = builder.AddProject<Projects.ProjectName_OrchestratorApi>("api")
+    .WithReference(ollama).WithReference(model)
+    .WithReference(mcpFilesystem).WithReference(mcpPlaywright).WithReference(mcpTerminal)
+    .WithReference(orchestrator)
+    .WaitFor(model).WaitFor(orchestrator);
+
+// CopilotKit frontend (Next.js)
+var frontend = builder.AddNextJsApp("frontend", "../frontend")
+    .WithReference(orchestrator)
+    .WithExternalHttpEndpoints()
+    .WaitFor(orchestrator);
+
+// DevUI Dashboard
+var devUI = builder.AddDevUI("pmcro-devui");
+devUI.WithAgentService(orchestrator);
+
+builder.Build().Run();
+```
+
+## MAF WorkflowBuilder Integration
+
+```csharp
+// OrchestratorService — WorkflowBuilder with sequential P→M→C→R
+var workflow = builder
+    .AddAgent(Planner())
+    .AddAgent(Maker())
+    .AddAgent(Checker())
+    .AddAgent(Reflector());
+
+AIAgent Planner() => new("Planner")
+    .SetDefaultModel(new OllamaChatClient("http://localhost:11434", "qwen3:8b"))
+    .WithTools(agentFilesystem, agentTerminal);
+
+AIAgent Maker() => /* TYPE1/TYPE2 boundary — HIL gated */
+AIAgent Checker() => /* 3-dim scoring */
+AIAgent Reflector() => /* ACCEPT/LOOP/ESCALATE */
+```
+
+## OllamaExtensions.cs — Keyed IChatClient
+
+```csharp
+// ServiceDefaults/OllamaExtensions.cs
+public static class OllamaExtensions
+{
+    public static class Keys { public const string Orchestrator = "model-orchestrator"; }
+
+    public static TBuilder AddOllamaClients<TBuilder>(this TBuilder builder)
+        where TBuilder : IHostApplicationBuilder
+    {
+        builder.Services.AddKeyedSingleton<IChatClient>(Keys.Orchestrator, (sp, _) =>
+        {
+            var cs = config.GetConnectionString("ollama-server") ?? "http://localhost:11434";
+            var model = config["Ollama:Models:Orchestrator"] ?? "qwen3:8b";
+            var http = new HttpClient { BaseAddress = new Uri(cs), Timeout = Timeout.InfiniteTimeSpan };
+            return new OllamaApiClient(http) { SelectedModel = model };
+        });
+        return builder;
+    }
+}
+```
+
+## After Scaffolding
+
+1. `dotnet workload install aspire` (if not already)
+2. `dotnet build` — verify all projects compile
+3. `docker pull ollama/ollama:latest` — ensure Ollama container image exists
+4. `dotnet run --project src/{ProjectName}.AppHost` — launches Aspire dashboard
+5. Ollama auto-pulls `qwen3:8b` on first run
+
+## Constraints
+
+- Ollama with GPU support requires Nvidia GPU + Docker / WSL2
+- `AddNextJsApp` is `[Experimental]` in Aspire 13 — suppress ASPIREJAVASCRIPT001
+- OLLAMA_CONTEXT_LENGTH: 16384 minimum for full skill manifests
+- OLLAMA_FLASH_ATTENTION: disable on RTX 4070 Mobile due to SIGSEGV (known issue)
+- MCP Playwright intentionally excluded from `.WaitFor()` — lazy actuator, tolerated down
+
+## Don'ts
+
+- Don't use .NET < 11 — Aspire 13+ requires it
+- Don't hardcode MaxLoops in AppHost — use appsettings.json (config precedence)
+- Don't WaitFor Playwright MCP — cascading crash risk
+- Don't expose health check endpoints in production without `HealthChecks:ExposeEndpoints`
 ```
 
 ## File: plugins\dotnet-aspnetcore\.codex-plugin\plugin.json
@@ -16834,6 +17024,186 @@ Present findings in this structure:
   ]
 }
 
+```
+
+## File: plugins\dotnet-maf\skills\create-maf-agent\SKILL.md
+
+```
+---
+name: create-maf-agent
+description: >
+  Create a Microsoft.Agents.AI agent using the MAF WorkflowBuilder pattern
+  with OllamaChatClient, sequential phase dispatch, and integrated MCP tool
+  access. Follows Anthropic Orchestrator-Workers pattern.
+  USE FOR: creating MAF AIAgents, building agent workflows, wiring Ollama to
+  MAF, designing multi-agent systems with MCP tool integration.
+  DO NOT USE FOR: Aspire orchestration (use create-aspire-project), simple
+  Blazor components (use create-blazor-project).
+---
+
+# Create a MAF Agent
+
+Scaffolds a Microsoft.Agents.AI agent using the WorkflowBuilder pattern.
+The agent runs the full PMCR-O cognitive loop (Plan→Make→Check→Reflect)
+as a sequential graph, with each phase as its own AIAgent node.
+
+## Architecture
+
+```
+OrchestratorService
+├── PmcroLoop.cs              ← WorkflowBuilder sequential graph
+│   ├── AIAgent("Planner")    ← Decompose seed intent
+│   ├── AIAgent("Maker")      ← Execute plan (TYPE2 tools) + HIL gate (TYPE1)
+│   ├── AIAgent("Checker")    ← 3-dim scoring (completeness, correctness, compliance)
+│   └── AIAgent("Reflector")  ← ACCEPT/LOOP/ESCALATE verdict
+├── Program.cs                ← DI wiring: OllamaChatClient + MCP tools
+└── appsettings.json          ← MaxLoops, model config, trail paths
+```
+
+## MAF Packages
+
+```xml
+<PackageReference Include="Microsoft.Agents.AI" />
+<PackageReference Include="Microsoft.Agents.AI.DevUI" />
+<PackageReference Include="Microsoft.Extensions.AI.Ollama" />
+```
+
+## WorkflowBuilder — Sequential Phase Dispatch
+
+```csharp
+// PmcroLoop.cs
+using Microsoft.Agents.AI;
+
+public class PmcroLoop
+{
+    public static void Build(WorkflowBuilder builder)
+    {
+        builder
+            .AddAgent(Planner())
+            .AddAgent(Maker())
+            .AddAgent(Checker())
+            .AddAgent(Reflector());
+    }
+
+    private static AIAgent Planner() => new("Planner")
+        .SetInstructions("""
+            You are the Planner. Decompose the seed intent into one bounded,
+            checkable unit of work. Output an ExecutionPlan in JSONL format.
+            """)
+        .SetDefaultModel(new OllamaChatClient("http://localhost:11434", "qwen3:8b"));
+
+    private static AIAgent Maker() => new("Maker")
+        .SetInstructions("""
+            You are the Maker. Execute exactly what the plan specifies.
+            TYPE2 tools: call directly. TYPE1 operations: stub-and-halt for HIL.
+            Output a MakerFrame in JSONL format.
+            """)
+        .SetDefaultModel(new OllamaChatClient("http://localhost:11434", "qwen3:8b"))
+        .WithTools(/* McpToolCache: filesystem, terminal */);
+
+    private static AIAgent Checker() => new("Checker")
+        .SetInstructions("""
+            You are the Checker. Independently verify every success criterion
+            across 3 dimensions: completeness, correctness, compliance.
+            Threshold: aggregate > 0.80, compliance = 1.0.
+            """)
+        .SetDefaultModel(new OllamaChatClient("http://localhost:11434", "qwen3:8b"));
+
+    private static AIAgent Reflector() => new("Reflector")
+        .SetInstructions("""
+            You are the Reflector. Decide ACCEPT/LOOP/ESCALATE.
+            Crystallize recurring failures as EarnedConstraints (EC-007).
+            Seal disposition.json on ACCEPT.
+            """)
+        .SetDefaultModel(new OllamaChatClient("http://localhost:11434", "qwen3:8b"));
+}
+```
+
+## Program.cs — Service Registration
+
+```csharp
+// OrchestratorService/Program.cs
+using ProjectName.ServiceDefaults;
+using Microsoft.Agents.AI;
+
+var builder = WebApplication.CreateBuilder(args);
+builder.AddServiceDefaults();
+builder.AddOllamaClients();
+
+// WorkflowBuilder registration
+builder.Services.AddSingleton(sp =>
+{
+    var workflow = new WorkflowBuilder();
+    PmcroLoop.Build(workflow);
+    return workflow.Build();
+});
+
+// MCP tool cache
+builder.Services.AddSingleton<McpToolCache>();
+
+var app = builder.Build();
+app.MapDefaultEndpoints();
+app.Run();
+```
+
+## appsettings.json — PMCR-O Configuration
+
+```json
+{
+  "MaxLoops": 5,
+  "Checker": {
+    "PassThreshold": 0.8,
+    "LawComplianceThreshold": 1.0
+  },
+  "Ollama": {
+    "Models": {
+      "Orchestrator": "qwen3:8b"
+    }
+  },
+  "Orchestrator": {
+    "FileSystemRoot": "B:\\pmcro-cline"
+  }
+}
+```
+
+## TYPE1/TYPE2 Boundary (EC-002)
+
+```csharp
+// Maker AIAgent — tool boundary
+.WithTools(tools =>
+{
+    // TYPE2: read-only — direct call, no HIL
+    tools.AddMcpTool("read_file", cache.Get("filesystem"));
+    tools.AddMcpTool("list_directory", cache.Get("filesystem"));
+    tools.AddMcpTool("search_files", cache.Get("filesystem"));
+
+    // TYPE1: write/mutate — HIL required
+    // tools.AddMcpTool("write_file", cache.Get("filesystem")); // gated
+    // tools.AddMcpTool("create_directory", cache.Get("filesystem")); // gated
+})
+```
+
+## After Scaffolding
+
+1. `dotnet add package Microsoft.Agents.AI`
+2. Copy `PmcroLoop.cs` into `OrchestratorService/`
+3. Wire MCP tool cache in `Program.cs`
+4. Pull Ollama model: `ollama pull qwen3:8b`
+5. `dotnet build && dotnet run`
+
+## Constraints
+
+- MAF WorkflowBuilder enforces SEQUENTIAL-001: phases run in order, never fan-out
+- TYPE1/TYPE2 boundary is enforced at the tool cache level, not the agent prompt
+- MaxLoops sourced from appsettings.json, NEVER hardcoded in code
+- Ollama must be running locally or via Aspire container
+
+## Don'ts
+
+- Don't fan out agents — SEQUENTIAL-001 is non-negotiable
+- Don't hardcode model paths or MaxLoops
+- Don't skip the TYPE1 gate on write tools
+- Don't use `SetDefaultModel` on the WorkflowBuilder — set per-AIAgent
 ```
 
 ## File: plugins\dotnet-maui\.codex-plugin\plugin.json
