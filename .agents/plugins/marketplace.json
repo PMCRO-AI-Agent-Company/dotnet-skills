@@ -1,10 +1,14 @@
 {
-  "name": "dotnet-agent-skills",
+  "name": "dotnet-skills",
   "owner": {
-    "name": ".NET Team at Microsoft"
+    "name": "PMCRO-AI-Agent-Company",
+    "email": "tooensure.com@gmail.com"
   },
   "interface": {
-    "displayName": ".NET Agent Skills"
+    "displayName": ".NET Agent Skills (Colony)"
+  },
+  "metadata": {
+    "description": "Colony .NET domain pack — skills for AI coding agents with .NET and C#. Upstream: Microsoft dotnet/skills."
   },
   "plugins": [
     {
