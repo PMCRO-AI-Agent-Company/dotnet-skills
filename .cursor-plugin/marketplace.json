@@ -1,10 +1,11 @@
 {
-  "name": "dotnet-agent-skills",
+  "name": "dotnet-skills",
   "owner": {
-    "name": ".NET Team at Microsoft"
+    "name": "PMCRO-AI-Agent-Company",
+    "email": "tooensure.com@gmail.com"
   },
   "metadata": {
-    "description": "Curated .NET agent skills and custom agents from the .NET team at Microsoft."
+    "description": "Colony .NET domain pack — skills for AI coding agents with .NET and C#. Upstream: Microsoft dotnet/skills."
   },
   "plugins": [
     {
@@ -12,7 +13,7 @@
       "source": "./plugins/dotnet",
       "description": "C# language server (LSP) integration for coding agents and high-level .NET development skills."
     },
-    { 
+    {
       "name": "dotnet-advanced",
       "source": "./plugins/dotnet-advanced",
       "description": "Advanced .NET and C# skills for niche scenarios that are not part of the core dotnet plugin."
