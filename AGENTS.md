@@ -1,6 +1,15 @@
 # Repository Instructions
 
+**PMCRO-AI-Agent-Company/dotnet-skills** — Domain pack for .NET and C# skills used by AI coding agents.
+
 This repository contains skill plugins under `plugins/`. Each subdirectory in `plugins/` is an independent plugin (e.g., `plugins/dotnet-msbuild`, `plugins/dotnet`).
+
+## Colony Alignment
+
+- Parent cognitive loop and laws live in [pmcro-skills](https://github.com/PMCRO-AI-Agent-Company/pmcro-skills).
+- Runtime host lives in [pmcro-runtime](https://github.com/PMCRO-AI-Agent-Company/pmcro-runtime).
+- Follow Colony Laws (EC-SYS-001 Atomic Content, EC-SYS-002 one-file-per-cycle, MAF-NATIVE) when adding or evolving skills.
+- New Colony-specific skills (e.g. MAF agent scaffolding) belong here; register them in the `pmcro-skills` catalog when they become part of governed cycles.
 
 ## Working on skills and evals
 
